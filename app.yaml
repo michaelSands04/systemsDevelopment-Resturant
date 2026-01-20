@@ -6,6 +6,9 @@ env_variables:
   DB_PASS: "pizza101"
   DB_NAME: "resturantdb"
   INSTANCE_CONNECTION_NAME: "systemsdevelopment-484915:europe-west2:free-trial-first-project"
+  ADMIN_USER: "admin"
+  ADMIN_PASS: "change-this-admin-password"
+
 
 beta_settings:
   cloud_sql_instances: "systemsdevelopment-484915:europe-west2:free-trial-first-project"
