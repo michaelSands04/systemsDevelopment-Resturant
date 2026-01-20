@@ -1,0 +1,24 @@
+{% extends "base.html" %}
+{% block content %}
+<h1 class="mb-3">Register</h1>
+
+<form method="post" class="mt-3" style="max-width: 420px;">
+  <div class="mb-3">
+    <label class="form-label">Username</label>
+    <input class="form-control" name="username" required minlength="3">
+  </div>
+
+  <div class="mb-3">
+    <label class="form-label">Password</label>
+    <input class="form-control" type="password" name="password" required minlength="8">
+    <div class="form-text">Minimum 8 characters.</div>
+  </div>
+
+  <div class="mb-3">
+    <label class="form-label">Confirm Password</label>
+    <input class="form-control" type="password" name="password2" required minlength="8">
+  </div>
+
+  <button class="btn btn-success" type="submit">Create account</button>
+</form>
+{% endblock %}
