@@ -1,6 +1,9 @@
 import os
 from functools import wraps
 from decimal import Decimal
+from datetime import datetime, timezone
+import json
+
 
 from flask import Flask, render_template, request, redirect, url_for, session, flash, jsonify
 from werkzeug.security import generate_password_hash, check_password_hash
@@ -8,7 +11,9 @@ from werkzeug.security import generate_password_hash, check_password_hash
 from sqlalchemy import create_engine, text
 from google.cloud import firestore
 
-db_fs = firestore.Client()
+FIRESTORE_DB = os.environ.get("FIRESTORE_DB", "resturantdb2")
+db_fs = firestore.Client(database=FIRESTORE_DB)
+
 
 
 
@@ -135,14 +140,23 @@ def login_required(fn):
 # ---- Logging ---- 
 from datetime import datetime, timezone
 
-def log_event(event: str, user_email: str | None, ip: str | None = None, meta: dict | None = None):
-    db_fs.collection("audit_logs").add({
-        "event": event,
-        "user_email": user_email,
-        "ip": ip,
-        "meta": meta or {},
-        "created_at": datetime.now(timezone.utc),
-    })
+from datetime import datetime, timezone
+
+from datetime import datetime, timezone
+
+def log_event(event: str, username: str | None, ip: str | None = None, meta: dict | None = None):
+    try:
+        db_fs.collection("audit_logs").add({
+            "event": event,
+            "username": username,          
+            "ip": ip,
+            "meta": meta or {},
+            "created_at": datetime.now(timezone.utc),
+        })
+    except Exception as e:
+        # Log to App Engine logs, but don't crash the page
+        app.logger.exception("Firestore audit log failed: %s", e)
+
 
 
 def admin_required(fn):
@@ -210,7 +224,7 @@ def login():
 
     username = request.form.get("username", "").strip()
     password = request.form.get("password", "")
-    
+
     engine = get_engine()
     with engine.begin() as conn:
         row = conn.execute(
@@ -224,40 +238,51 @@ def login():
 
     session["user"] = {"id": row.id, "username": row.username, "role": row.role}
     flash("Logged in successfully.", "success")
-    log_event("login", session.get("user_email"), request.remote_addr)
+
+    
+    log_event("login", row.username, request.remote_addr)
 
     nxt = request.args.get("next")
     return redirect(nxt or url_for("menu"))
+
 
 
 @app.route("/logout", methods=["POST"])
 def logout():
     session.pop("user", None)
     flash("Logged out.", "info")
-    log_event("logout", session.get("user_email"), request.remote_addr)
+    log_event("logout", (current_user() or {}).get("username"), request.remote_addr)
 
     return redirect(url_for("menu"))
 
+from datetime import datetime, timezone
+from google.cloud import firestore
+
+from datetime import datetime, timezone
+from google.cloud import firestore
+
 @app.route("/reviews", methods=["GET", "POST"])
 def reviews():
-    user_email = session.get("user_email")  # adjust if you named it differently
+    user = current_user()  # your helper returns session.get("user")
+    username = user["username"] if user else None
 
     if request.method == "POST":
-        if not user_email:
+        if not username:
             flash("Please log in to leave a review.", "warning")
             return redirect(url_for("login"))
 
         rating = int(request.form.get("rating", "5"))
+        rating = max(1, min(5, rating))  # clamp 1..5
         comment = request.form.get("comment", "").strip()
 
         db_fs.collection("reviews").add({
-            "user_email": user_email,
+            "username": username,
             "rating": rating,
             "comment": comment,
             "created_at": datetime.now(timezone.utc),
         })
 
-        log_event("review_created", user_email, request.remote_addr, {"rating": rating})
+        log_event("review_created", username, request.remote_addr, {"rating": rating})
         flash("Thanks for your review!", "success")
         return redirect(url_for("reviews"))
 
@@ -268,8 +293,15 @@ def reviews():
         .limit(20)
         .stream()
     )
-    review_list = [d.to_dict() | {"id": d.id} for d in docs]
-    return render_template("reviews.html", reviews=review_list, user_email=user_email)
+
+    review_list = []
+    for d in docs:
+        data = d.to_dict() or {}
+        data["id"] = d.id
+        review_list.append(data)
+
+    return render_template("reviews.html", reviews=review_list, user=user)
+
 
 @app.route("/admin/logs")
 @admin_required
@@ -280,8 +312,15 @@ def admin_logs():
         .limit(50)
         .stream()
     )
-    logs = [d.to_dict() | {"id": d.id} for d in docs]
-    return render_template("admin_logs.html", logs=logs)
+
+    logs = []
+    for d in docs:
+        data = d.to_dict() or {}
+        data["id"] = d.id
+        logs.append(data)
+
+    return render_template("admin_logs.html", logs=logs, user=current_user())
+
 
 
 @app.route("/menu")

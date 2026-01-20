@@ -8,6 +8,11 @@ env_variables:
   INSTANCE_CONNECTION_NAME: "systemsdevelopment-484915:europe-west2:free-trial-first-project"
   ADMIN_USER: "admin"
   ADMIN_PASS: "change-this-admin-password"
+  SECRET_KEY: "secret"
+  FIRESTORE_DB: "resturantdb2"
+
+automatic_scaling:
+  max_instances: 1
 
 
 beta_settings:
