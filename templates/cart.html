@@ -1,0 +1,38 @@
+{% extends "base.html" %}
+{% block content %}
+  <h1 class="mb-3">Cart</h1>
+
+  {% if cart_items|length == 0 %}
+    <p>Your cart is empty.</p>
+    <a class="btn btn-primary" href="/menu">Go to menu</a>
+  {% else %}
+    <table class="table">
+      <thead>
+        <tr>
+          <th>Item</th><th>Qty</th><th>Price</th><th>Line total</th><th></th>
+        </tr>
+      </thead>
+      <tbody>
+      {% for row in cart_items %}
+        <tr>
+          <td>{{ row.name }}</td>
+          <td>{{ row.qty }}</td>
+          <td>£{{ "%.2f"|format(row.price) }}</td>
+          <td>£{{ "%.2f"|format(row.line_total) }}</td>
+          <td>
+            <form method="post" action="/cart/remove/{{ row.id }}">
+              <button class="btn btn-sm btn-outline-danger" type="submit">Remove</button>
+            </form>
+          </td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+
+    <h4>Total: £{{ "%.2f"|format(total) }}</h4>
+
+    <form method="post" action="/checkout">
+      <button class="btn btn-primary" type="submit">Checkout (placeholder)</button>
+    </form>
+  {% endif %}
+{% endblock %}

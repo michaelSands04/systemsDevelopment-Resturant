@@ -1,0 +1,11 @@
+runtime: python311
+entrypoint: gunicorn -b :$PORT main:app
+
+env_variables:
+  DB_USER: "resturantapp"
+  DB_PASS: "pizza101"
+  DB_NAME: "resturantdb"
+  INSTANCE_CONNECTION_NAME: "systemsdevelopment-484915:europe-west2:free-trial-first-project"
+
+beta_settings:
+  cloud_sql_instances: "systemsdevelopment-484915:europe-west2:free-trial-first-project"

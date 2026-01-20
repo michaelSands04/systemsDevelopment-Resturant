@@ -1,0 +1,22 @@
+{% extends "base.html" %}
+{% block content %}
+  <h1 class="mb-3">Menu</h1>
+
+  <div class="row g-3">
+    {% for item in menu %}
+      <div class="col-md-4">
+        <div class="card">
+          <div class="card-body">
+            <h5 class="card-title">{{ item.name }}</h5>
+            <p class="card-text">{{ item.description }}</p>
+            <p class="fw-bold">£{{ "%.2f"|format(item.price) }}</p>
+
+            <form method="post" action="/cart/add/{{ item.id }}">
+              <button class="btn btn-success" type="submit">Add to cart</button>
+            </form>
+          </div>
+        </div>
+      </div>
+    {% endfor %}
+  </div>
+{% endblock %}
