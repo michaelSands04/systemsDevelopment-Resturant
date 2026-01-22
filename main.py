@@ -3,8 +3,11 @@ from functools import wraps
 from decimal import Decimal
 from datetime import datetime, timezone
 import json
-
+import requests
 from datetime import datetime, timezone
+from google.cloud import firestore
+from google.cloud.firestore_v1.field_path import FieldPath
+
 
 from flask import Flask, render_template, request, redirect, url_for, session, flash, jsonify
 from werkzeug.security import generate_password_hash, check_password_hash
@@ -305,11 +308,29 @@ def reviews():
         # Save in Firestore (NoSQL)
         db_fs.collection("reviews").add({
             "username": user["username"],
-            "item_id": item_id,
-            "rating": rating,
+            "item_id": int(item_id),     # ensure it's an int
+            "rating": int(rating),       # ensure it's an int
             "comment": comment,
             "created_at": datetime.now(timezone.utc),
-        })
+})
+
+# Call internal stats function (HTTP Cloud Function)
+        try:
+            url = os.environ.get("REVIEW_STATS_URL")
+            token = os.environ.get("INTERNAL_TOKEN")
+
+            if url and token:
+                requests.post(
+            url,
+            json={"item_id": int(item_id), "rating": int(rating)},
+            headers={"X-Internal-Token": token},
+            timeout=5,
+        )
+        except Exception as e:
+    # optional: print(e) or log it
+            pass
+        
+        
 
         # Audit log (Firestore audit_logs)
         log_event(
