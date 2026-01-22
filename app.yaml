@@ -11,9 +11,11 @@ env_variables:
   SECRET_KEY: "secret"
   FIRESTORE_DB: "resturantdb2"
 
+  REVIEW_STATS_URL: "https://review-stats-http-p3zngb5vwq-nw.a.run.app"
+  INTERNAL_TOKEN: "work12345"
+
 automatic_scaling:
   max_instances: 1
-
 
 beta_settings:
   cloud_sql_instances: "systemsdevelopment-484915:europe-west2:free-trial-first-project"
