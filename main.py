@@ -396,6 +396,23 @@ def menu():
         {"id": r.id, "name": r.name, "description": r.description, "price": float(r.price)}
         for r in rows
     ]
+
+    # --- Pull rating stats from Firestore (item_stats/{item_id}) ---
+    for m in menu_items:
+        try:
+            doc = db_fs.collection("item_stats").document(str(m["id"])).get()
+            if doc.exists:
+                s = doc.to_dict() or {}
+                m["avg_rating"] = s.get("avg_rating")
+                m["review_count"] = int(s.get("review_count", 0))
+            else:
+                m["avg_rating"] = None
+                m["review_count"] = 0
+        except Exception:
+            # Don't break menu page if Firestore is temporarily unavailable
+            m["avg_rating"] = None
+            m["review_count"] = 0
+
     return render_template("menu.html", menu=menu_items, user=current_user())
 
 

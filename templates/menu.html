@@ -7,7 +7,20 @@
       <div class="col-md-4">
         <div class="card">
           <div class="card-body">
-            <h5 class="card-title">{{ item.name }}</h5>
+            <h5 class="card-title d-flex justify-content-between align-items-start">
+              <span>{{ item.name }}</span>
+
+              {% if item.review_count and item.review_count > 0 %}
+                <span class="badge bg-info text-dark">
+                  ★ {{ item.avg_rating }}/5 ({{ item.review_count }})
+                </span>
+              {% else %}
+                <span class="badge bg-secondary">
+                  No ratings
+                </span>
+              {% endif %}
+            </h5>
+
             <p class="card-text">{{ item.description }}</p>
             <p class="fw-bold">£{{ "%.2f"|format(item.price) }}</p>
 
