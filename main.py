@@ -415,6 +415,80 @@ def menu():
 
     return render_template("menu.html", menu=menu_items, user=current_user())
 
+@app.route("/stats")
+def stats():
+    # 1) Read top rated item stats from Firestore
+    docs = (
+        db_fs.collection("item_stats")
+        .order_by("avg_rating", direction=firestore.Query.DESCENDING)
+        .limit(10)
+        .stream()
+    )
+
+    stats_list = []
+    item_ids = []
+    for d in docs:
+        data = d.to_dict() or {}
+        # doc id is item_id as string
+        data["item_id"] = d.id
+        stats_list.append(data)
+        item_ids.append(int(d.id))
+
+    # 2) Map item_id -> menu item info from Cloud SQL
+    menu_lookup = {}
+    if item_ids:
+        engine = get_engine()
+        with engine.begin() as conn:
+            rows = conn.execute(
+                text("""
+                    SELECT id, name, price
+                    FROM menu_items
+                    WHERE id IN :ids
+                """).bindparams(ids=tuple(item_ids))
+            ).fetchall()
+
+        menu_lookup = {r.id: {"name": r.name, "price": float(r.price)} for r in rows}
+
+    # 3) Merge into a display-friendly list
+    top_items = []
+    for s in stats_list:
+        iid = int(s.get("item_id"))
+        mi = menu_lookup.get(iid, {"name": f"Item {iid}", "price": None})
+        top_items.append({
+            "item_id": iid,
+            "name": mi["name"],
+            "price": mi["price"],
+            "avg_rating": s.get("avg_rating", 0),
+            "review_count": s.get("review_count", 0),
+        })
+
+    # 4) Also show latest reviews (optional but looks great)
+    rdocs = (
+        db_fs.collection("reviews")
+        .order_by("created_at", direction=firestore.Query.DESCENDING)
+        .limit(10)
+        .stream()
+    )
+    latest_reviews = []
+    for d in rdocs:
+        data = d.to_dict() or {}
+        data["id"] = d.id
+        # attach menu name for readability
+        iid = data.get("item_id")
+        try:
+            iid_int = int(iid)
+            data["item_name"] = menu_lookup.get(iid_int, {}).get("name", f"Item {iid_int}")
+        except Exception:
+            data["item_name"] = "Unknown"
+        latest_reviews.append(data)
+
+    return render_template(
+        "stats.html",
+        user=current_user(),
+        top_items=top_items,
+        latest_reviews=latest_reviews
+    )
+
 
 # ---- Cart (session-based) ----
 def get_cart():
