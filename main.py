@@ -7,6 +7,8 @@ import requests
 from datetime import datetime, timezone
 from google.cloud import firestore
 from google.cloud.firestore_v1.field_path import FieldPath
+from google.cloud import secretmanager
+
 
 
 from flask import Flask, render_template, request, redirect, url_for, session, flash, jsonify
@@ -14,6 +16,33 @@ from werkzeug.security import generate_password_hash, check_password_hash
 
 from sqlalchemy import create_engine, text
 from google.cloud import firestore
+
+_secret_cache = {}
+
+def get_secret(name: str) -> str | None:
+    # cache so we don’t call Secret Manager repeatedly
+    if name in _secret_cache:
+        return _secret_cache[name]
+
+    client = secretmanager.SecretManagerServiceClient()
+    project_id = os.environ.get("GOOGLE_CLOUD_PROJECT")
+    if not project_id:
+        return None
+
+    secret_path = f"projects/{project_id}/secrets/{name}/versions/latest"
+    resp = client.access_secret_version(request={"name": secret_path})
+    val = resp.payload.data.decode("utf-8")
+    _secret_cache[name] = val
+    return val
+
+
+def env_or_secret(env_key: str, secret_name: str, default=None):
+    v = os.environ.get(env_key)
+    if v:
+        return v
+    s = get_secret(secret_name)
+    return s if s is not None else default
+
 
 FIRESTORE_DB = os.environ.get("FIRESTORE_DB", "resturantdb2")
 db_fs = firestore.Client(database=FIRESTORE_DB)
@@ -25,10 +54,29 @@ app = Flask(__name__)
 
 # IMPORTANT: In production you should use Secret Manager later.
 # For now: use env var if set, else fallback.
-app.secret_key = os.environ.get("SECRET_KEY", "dev-secret-change-me")
+app.secret_key = env_or_secret("SECRET_KEY", "SECRET_KEY", "dev-secret-change-me")
 
 # ---- DB / Engine ----
 _engine = None
+
+_secret_cache = {}
+
+def get_secret(name: str) -> str:
+    # Cache so we don’t call Secret Manager every request
+    if name in _secret_cache:
+        return _secret_cache[name]
+
+    project_id = os.environ.get("GOOGLE_CLOUD_PROJECT") or os.environ.get("GCP_PROJECT")
+    if not project_id:
+        raise RuntimeError("GOOGLE_CLOUD_PROJECT not set (cannot read secrets).")
+
+    client = secretmanager.SecretManagerServiceClient()
+    secret_path = f"projects/{project_id}/secrets/{name}/versions/latest"
+    resp = client.access_secret_version(request={"name": secret_path})
+    value = resp.payload.data.decode("utf-8").strip()
+
+    _secret_cache[name] = value
+    return value
 
 
 def get_engine():
@@ -41,7 +89,8 @@ def get_engine():
         return _engine
 
     db_user = os.environ["DB_USER"]
-    db_pass = os.environ["DB_PASS"]
+    db_pass = os.environ.get("DB_PASS") or get_secret("DB_PASS")
+
     db_name = os.environ["DB_NAME"]
     instance = os.environ["INSTANCE_CONNECTION_NAME"]
 
@@ -61,6 +110,8 @@ def get_engine():
         max_overflow=2,
     )
     return _engine
+
+
 
 
 def init_db():
@@ -104,7 +155,8 @@ def init_db():
 
         # Optional: bootstrap an admin user (set these in app.yaml later)
         admin_user = os.environ.get("ADMIN_USER")
-        admin_pass = os.environ.get("ADMIN_PASS")
+        admin_pass = env_or_secret("ADMIN_PASS", "ADMIN_PASS")
+
         if admin_user and admin_pass:
             existing = conn.execute(
                 text("SELECT id FROM users WHERE username=:u"),
@@ -317,7 +369,7 @@ def reviews():
 # Call internal stats function (HTTP Cloud Function)
         try:
             url = os.environ.get("REVIEW_STATS_URL")
-            token = os.environ.get("INTERNAL_TOKEN")
+            token = env_or_secret("INTERNAL_TOKEN", "INTERNAL_TOKEN")
 
             if url and token:
                 requests.post(

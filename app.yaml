@@ -3,16 +3,16 @@ entrypoint: gunicorn -b :$PORT main:app
 
 env_variables:
   DB_USER: "resturantapp"
-  DB_PASS: "pizza101"
   DB_NAME: "resturantdb"
+  
   INSTANCE_CONNECTION_NAME: "systemsdevelopment-484915:europe-west2:free-trial-first-project"
   ADMIN_USER: "admin"
-  ADMIN_PASS: "change-this-admin-password"
-  SECRET_KEY: "secret"
+  
+ 
   FIRESTORE_DB: "resturantdb2"
 
   REVIEW_STATS_URL: "https://review-stats-http-p3zngb5vwq-nw.a.run.app"
-  INTERNAL_TOKEN: "work12345"
+  
 
 automatic_scaling:
   max_instances: 1
