@@ -9,9 +9,20 @@
 
     {% if user %}
       <form method="post">
+        <!-- NEW: Menu item dropdown -->
+        <div class="mb-3">
+          <label class="form-label">Menu item</label>
+          <select class="form-select" name="item_id" required>
+            <option value="" selected disabled>Select an item...</option>
+            {% for item in menu_items %}
+              <option value="{{ item.id }}">{{ item.name }}</option>
+            {% endfor %}
+          </select>
+        </div>
+
         <div class="mb-3">
           <label class="form-label">Rating (1–5)</label>
-          <select class="form-select" name="rating">
+          <select class="form-select" name="rating" required>
             <option value="5" selected>5</option>
             <option value="4">4</option>
             <option value="3">3</option>
@@ -46,6 +57,11 @@
           <span>{{ r.rating }}/5</span>
         </div>
         <div class="mt-2">{{ r.comment }}</div>
+
+        <!-- Optional: show item_id for now (until we map it to a name later) -->
+        {% if r.item_id %}
+          <div class="text-muted small mt-2">Item ID: {{ r.item_id }}</div>
+        {% endif %}
       </div>
     {% endfor %}
   </div>

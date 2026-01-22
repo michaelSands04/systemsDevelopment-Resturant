@@ -4,6 +4,7 @@ from decimal import Decimal
 from datetime import datetime, timezone
 import json
 
+from datetime import datetime, timezone
 
 from flask import Flask, render_template, request, redirect, url_for, session, flash, jsonify
 from werkzeug.security import generate_password_hash, check_password_hash
@@ -263,30 +264,65 @@ from google.cloud import firestore
 
 @app.route("/reviews", methods=["GET", "POST"])
 def reviews():
-    user = current_user()  # your helper returns session.get("user")
-    username = user["username"] if user else None
+    user = current_user()  # your existing helper returns session.get("user") or None
 
+    # --- Load menu items from Cloud SQL (for dropdown + name lookup) ---
+    engine = get_engine()
+    with engine.begin() as conn:
+        rows = conn.execute(text("""
+            SELECT id, name
+            FROM menu_items
+            ORDER BY id ASC
+        """)).fetchall()
+
+    menu_items = [{"id": r.id, "name": r.name} for r in rows]
+
+    # --- POST: create a new review in Firestore ---
     if request.method == "POST":
-        if not username:
+        if not user:
             flash("Please log in to leave a review.", "warning")
-            return redirect(url_for("login"))
+            return redirect(url_for("login", next="/reviews"))
 
+        # Read + validate item_id
+        item_id_raw = request.form.get("item_id", "").strip()
+        if not item_id_raw.isdigit():
+            flash("Please select a valid menu item.", "danger")
+            return redirect(url_for("reviews"))
+
+        item_id = int(item_id_raw)
+
+        # Optional: ensure item_id is actually in your SQL menu
+        valid_ids = {m["id"] for m in menu_items}
+        if item_id not in valid_ids:
+            flash("That menu item does not exist.", "danger")
+            return redirect(url_for("reviews"))
+
+        # Read + validate rating/comment
         rating = int(request.form.get("rating", "5"))
-        rating = max(1, min(5, rating))  # clamp 1..5
+        rating = max(1, min(5, rating))
         comment = request.form.get("comment", "").strip()
 
+        # Save in Firestore (NoSQL)
         db_fs.collection("reviews").add({
-            "username": username,
+            "username": user["username"],
+            "item_id": item_id,
             "rating": rating,
             "comment": comment,
             "created_at": datetime.now(timezone.utc),
         })
 
-        log_event("review_created", username, request.remote_addr, {"rating": rating})
+        # Audit log (Firestore audit_logs)
+        log_event(
+            "review_created",
+            user["username"],
+            request.remote_addr,
+            {"item_id": item_id, "rating": rating}
+        )
+
         flash("Thanks for your review!", "success")
         return redirect(url_for("reviews"))
 
-    # GET: show latest 20
+    # --- GET: show latest 20 reviews ---
     docs = (
         db_fs.collection("reviews")
         .order_by("created_at", direction=firestore.Query.DESCENDING)
@@ -300,7 +336,9 @@ def reviews():
         data["id"] = d.id
         review_list.append(data)
 
-    return render_template("reviews.html", reviews=review_list, user=user)
+    # Pass menu items to template for dropdown
+    return render_template("reviews.html", user=user, menu_items=menu_items, reviews=review_list)
+
 
 
 @app.route("/admin/logs")
