@@ -9,6 +9,9 @@ from google.cloud import firestore
 from google.cloud.firestore_v1.field_path import FieldPath
 from google.cloud import secretmanager
 
+from flask import Response
+
+
 
 
 from flask import Flask, render_template, request, redirect, url_for, session, flash, jsonify
@@ -621,3 +624,92 @@ def api_menu():
 if __name__ == "__main__":
     # Local only (App Engine uses gunicorn entrypoint)
     app.run(host="127.0.0.1", port=8080, debug=True)
+
+    @app.route("/api/reviews", methods=["GET"])
+    def api_reviews():
+        """
+        Returns latest reviews from Firestore.
+        Optional query param:
+         - item_id (int): filter reviews for a specific menu item
+         - limit (int): default 20, max 100
+        """
+        limit = request.args.get("limit", "20")
+        try:
+            limit = max(1, min(100, int(limit)))
+        except ValueError:
+            limit = 20
+
+        item_id = request.args.get("item_id")
+        q = db_fs.collection("reviews").order_by("created_at", direction=firestore.Query.DESCENDING)
+
+        if item_id is not None:
+            try:
+                item_id_int = int(item_id)
+                q = q.where("item_id", "==", item_id_int)
+            except ValueError:
+                return jsonify({"error": "item_id must be an integer"}), 400
+
+        docs = q.limit(limit).stream()
+
+        out = []
+        for d in docs:
+            data = d.to_dict() or {}
+            data["id"] = d.id
+
+        # Make timestamps JSON-safe (Firestore timestamp / datetime)
+            ts = data.get("created_at")
+        if hasattr(ts, "isoformat"):
+            data["created_at"] = ts.isoformat()
+
+        out.append(data)
+
+        return jsonify(out)
+
+    @app.route("/api/stats", methods=["GET"])
+    def api_stats():
+        """
+        Returns menu items (Cloud SQL) combined with aggregated stats (Firestore item_stats).
+        Optional query param:
+          - limit (int): default 20, max 100
+        """
+        limit = request.args.get("limit", "20")
+        try:
+            limit = max(1, min(100, int(limit)))
+        except ValueError:
+            limit = 20
+
+        # 1) Load menu items from Cloud SQL
+        engine = get_engine()
+        with engine.begin() as conn:
+            rows = conn.execute(text("""
+            SELECT id, name, description, price
+            FROM menu_items
+            ORDER BY id ASC
+            """)).fetchall()
+
+        menu = [{"id": r.id, "name": r.name, "description": r.description, "price": float(r.price)} for r in rows]
+
+        # 2) Load stats from Firestore (item_stats docs keyed by item_id string)
+        # We'll fetch all item_stats docs once and map by item_id
+        stats_docs = db_fs.collection("item_stats").stream()
+        stats_map = {}
+        for d in stats_docs:
+            s = d.to_dict() or {}
+            # item_id stored as string in your screenshot, but handle both
+            sid = s.get("item_id", d.id)
+            stats_map[str(sid)] = s
+
+        # 3) Join
+        combined = []
+        for item in menu[:limit]:
+            s = stats_map.get(str(item["id"]), {})
+            combined.append({
+            **item,
+            "review_count": int(s.get("review_count", 0) or 0),
+            "avg_rating": float(s.get("avg_rating", 0.0) or 0.0),
+            "total_rating": int(s.get("total_rating", 0) or 0),
+            })
+
+        return jsonify(combined)
+
+
