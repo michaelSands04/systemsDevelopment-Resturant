@@ -145,6 +145,34 @@ def init_db():
             )
         """))
 
+        # Orders tables
+        conn.execute(text("""
+            CREATE TABLE IF NOT EXISTS orders (
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            user_id INT NOT NULL,
+            status VARCHAR(20) NOT NULL DEFAULT 'pending',
+            total_price DECIMAL(10,2) NOT NULL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            INDEX (user_id),
+            CONSTRAINT fk_orders_user FOREIGN KEY (user_id) REFERENCES users(id)
+            )
+        """))
+
+        conn.execute(text("""
+            CREATE TABLE IF NOT EXISTS order_items (
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            order_id INT NOT NULL,
+            menu_item_id INT NOT NULL,
+            qty INT NOT NULL,
+            unit_price DECIMAL(10,2) NOT NULL,
+            INDEX (order_id),
+            INDEX (menu_item_id),
+            CONSTRAINT fk_items_order FOREIGN KEY (order_id) REFERENCES orders(id) ON DELETE CASCADE,
+            CONSTRAINT fk_items_menu FOREIGN KEY (menu_item_id) REFERENCES menu_items(id)
+            )
+        """))
+
+
         # Seed menu if empty
         count = conn.execute(text("SELECT COUNT(*) FROM menu_items")).scalar()
         if int(count) == 0:
@@ -608,12 +636,111 @@ def cart_remove(item_id):
     session.modified = True
     return redirect(url_for("cart"))
 
+def cart_lines_from_session():
+    cart_map = get_cart()  # {item_id: qty}
+    if not cart_map:
+        return [], Decimal("0.00")
+
+    item_ids = [int(k) for k in cart_map.keys()]
+    engine = get_engine()
+
+    with engine.begin() as conn:
+        rows = conn.execute(
+            text("""
+                SELECT id, name, price
+                FROM menu_items
+                WHERE id IN :ids
+            """).bindparams(ids=tuple(item_ids))
+        ).fetchall()
+
+    lookup = {r.id: {"name": r.name, "price": Decimal(str(r.price))} for r in rows}
+
+    lines = []
+    total = Decimal("0.00")
+    for item_id_str, qty in cart_map.items():
+        item_id = int(item_id_str)
+        qty = int(qty)
+        info = lookup.get(item_id)
+        if not info:
+            continue
+        line_total = info["price"] * qty
+        total += line_total
+        lines.append({
+            "menu_item_id": item_id,
+            "name": info["name"],
+            "qty": qty,
+            "unit_price": float(info["price"]),
+            "line_total": float(line_total),
+        })
+
+    return lines, total
+
+
 
 # ---- Admin (protected) ----
 @app.route("/admin")
 @admin_required
 def admin():
     return render_template("admin.html", user=current_user())
+
+@app.route("/admin/orders")
+@admin_required
+def admin_orders():
+    engine = get_engine()
+    with engine.begin() as conn:
+        orders = conn.execute(text("""
+            SELECT o.id, o.status, o.total_price, o.created_at, u.username
+            FROM orders o
+            JOIN users u ON u.id = o.user_id
+            ORDER BY o.created_at DESC
+            LIMIT 100
+        """)).fetchall()
+
+        order_ids = [o.id for o in orders]
+        items = []
+        if order_ids:
+            items = conn.execute(
+                text("""
+                    SELECT oi.order_id, oi.qty, oi.unit_price, mi.name
+                    FROM order_items oi
+                    JOIN menu_items mi ON mi.id = oi.menu_item_id
+                    WHERE oi.order_id IN :oids
+                    ORDER BY oi.order_id DESC, mi.name ASC
+                """).bindparams(oids=tuple(order_ids))
+            ).fetchall()
+
+    items_by_order = {}
+    for it in items:
+        items_by_order.setdefault(it.order_id, []).append({
+            "name": it.name,
+            "qty": int(it.qty),
+            "unit_price": float(it.unit_price),
+        })
+
+    return render_template("admin_orders.html", user=current_user(), orders=orders, items_by_order=items_by_order)
+
+
+@app.route("/admin/orders/<int:order_id>/status", methods=["POST"])
+@admin_required
+def admin_update_order_status(order_id):
+    new_status = (request.form.get("status") or "").strip().lower()
+    allowed = {"pending", "preparing", "completed", "cancelled"}
+    if new_status not in allowed:
+        flash("Invalid status.", "danger")
+        return redirect(url_for("admin_orders"))
+
+    engine = get_engine()
+    with engine.begin() as conn:
+        conn.execute(
+            text("UPDATE orders SET status=:s WHERE id=:oid"),
+            {"s": new_status, "oid": int(order_id)}
+        )
+
+    user = current_user()
+    log_event("order_status_updated", user.get("username"), request.remote_addr, {"order_id": int(order_id), "status": new_status})
+    flash(f"Order #{order_id} updated to {new_status}.", "success")
+    return redirect(url_for("admin_orders"))
+
 
 from flask import Response
 from datetime import datetime, timezone
@@ -687,6 +814,98 @@ def find_us():
         log_event("admin_view_find_us", user.get("username"), request.remote_addr)
 
     return render_template("find_us.html", user=user)
+
+@app.route("/checkout", methods=["GET", "POST"])
+@login_required
+def checkout():
+    user = current_user()
+    lines, total = cart_lines_from_session()
+
+    if request.method == "GET":
+        if not lines:
+            flash("Your cart is empty.", "warning")
+            return redirect(url_for("menu"))
+        return render_template("checkout.html", user=user, lines=lines, total=float(total))
+
+    # POST: place order
+    if not lines:
+        flash("Your cart is empty.", "warning")
+        return redirect(url_for("menu"))
+
+    engine = get_engine()
+    with engine.begin() as conn:
+        res = conn.execute(
+            text("""
+                INSERT INTO orders (user_id, status, total_price)
+                VALUES (:uid, 'pending', :total)
+            """),
+            {"uid": int(user["id"]), "total": float(total)}
+        )
+        order_id = res.lastrowid
+
+        for ln in lines:
+            conn.execute(
+                text("""
+                    INSERT INTO order_items (order_id, menu_item_id, qty, unit_price)
+                    VALUES (:oid, :mid, :qty, :unit)
+                """),
+                {
+                    "oid": int(order_id),
+                    "mid": int(ln["menu_item_id"]),
+                    "qty": int(ln["qty"]),
+                    "unit": float(ln["unit_price"]),
+                }
+            )
+
+    # clear cart
+    session["cart"] = {}
+    session.modified = True
+
+    log_event("order_created", user.get("username"), request.remote_addr, {"order_id": int(order_id), "total": float(total)})
+    flash(f"Order placed! Order #{order_id}", "success")
+    return redirect(url_for("my_orders"))
+
+@app.route("/orders")
+@login_required
+def my_orders():
+    user = current_user()
+    engine = get_engine()
+
+    with engine.begin() as conn:
+        orders = conn.execute(
+            text("""
+                SELECT id, status, total_price, created_at
+                FROM orders
+                WHERE user_id = :uid
+                ORDER BY created_at DESC
+            """),
+            {"uid": int(user["id"])}
+        ).fetchall()
+
+        order_ids = [o.id for o in orders]
+        items = []
+        if order_ids:
+            items = conn.execute(
+                text("""
+                    SELECT oi.order_id, oi.qty, oi.unit_price, mi.name
+                    FROM order_items oi
+                    JOIN menu_items mi ON mi.id = oi.menu_item_id
+                    WHERE oi.order_id IN :oids
+                    ORDER BY oi.order_id DESC, mi.name ASC
+                """).bindparams(oids=tuple(order_ids))
+            ).fetchall()
+
+    # group items by order_id
+    items_by_order = {}
+    for it in items:
+        items_by_order.setdefault(it.order_id, []).append({
+            "name": it.name,
+            "qty": int(it.qty),
+            "unit_price": float(it.unit_price),
+        })
+
+    return render_template("orders.html", user=user, orders=orders, items_by_order=items_by_order)
+
 
 
 @app.route("/api/reviews", methods=["GET"])

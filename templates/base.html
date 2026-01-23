@@ -78,33 +78,45 @@
     <div class="collapse navbar-collapse" id="navMain">
       <!-- Left-side nav links -->
       <ul class="navbar-nav me-auto mb-2 mb-lg-0">
-        <li class="nav-item">
-          <a class="nav-link {% if request.path.startswith('/menu') %}active{% endif %}" href="/menu">Menu</a>
-        </li>
-        <li class="nav-item">
-          <a class="nav-link {% if request.path.startswith('/cart') %}active{% endif %}" href="/cart">Cart</a>
-        </li>
-        <li class="nav-item">
-          <a class="nav-link {% if request.path.startswith('/reviews') %}active{% endif %}" href="/reviews">Reviews</a>
-        </li>
-        <li class="nav-item">
-          <a class="nav-link {% if request.path.startswith('/stats') %}active{% endif %}" href="/stats">Dashboard</a>
-        </li>
+  <li class="nav-item">
+    <a class="nav-link {% if request.path.startswith('/menu') %}active{% endif %}" href="/menu">Menu</a>
+  </li>
+  <li class="nav-item">
+    <a class="nav-link {% if request.path.startswith('/cart') %}active{% endif %}" href="/cart">Cart</a>
+  </li>
 
-        <!-- ready for Google Maps page -->
-        <li class="nav-item">
-          <a class="nav-link {% if request.path.startswith('/find-us') %}active{% endif %}" href="/find-us">Find Us</a>
-        </li>
+  {% if user %}
+  <li class="nav-item">
+    <a class="nav-link {% if request.path.startswith('/orders') %}active{% endif %}" href="/orders">My Orders</a>
+  </li>
+  {% endif %}
 
-        {% if user and user.role == "admin" %}
-          <li class="nav-item">
-            <a class="nav-link {% if request.path.startswith('/admin') %}active{% endif %}" href="/admin">Admin</a>
-          </li>
-          <li class="nav-item">
-            <a class="nav-link {% if request.path.startswith('/admin/logs') %}active{% endif %}" href="/admin/logs">Audit Logs</a>
-          </li>
-        {% endif %}
-      </ul>
+  <li class="nav-item">
+    <a class="nav-link {% if request.path.startswith('/reviews') %}active{% endif %}" href="/reviews">Reviews</a>
+  </li>
+  <li class="nav-item">
+    <a class="nav-link {% if request.path.startswith('/stats') %}active{% endif %}" href="/stats">Dashboard</a>
+  </li>
+
+  <li class="nav-item">
+    <a class="nav-link {% if request.path.startswith('/find-us') %}active{% endif %}" href="/find-us">Find Us</a>
+  </li>
+
+  {% if user and user.role == "admin" %}
+    <li class="nav-item">
+      <a class="nav-link {% if request.path.startswith('/admin') %}active{% endif %}" href="/admin">Admin</a>
+    </li>
+
+    <li class="nav-item">
+      <a class="nav-link {% if request.path.startswith('/admin/orders') %}active{% endif %}" href="/admin/orders">Orders</a>
+    </li>
+
+    <li class="nav-item">
+      <a class="nav-link {% if request.path.startswith('/admin/logs') %}active{% endif %}" href="/admin/logs">Audit Logs</a>
+    </li>
+  {% endif %}
+</ul>
+
 
       <!-- Right-side auth controls -->
       <div class="d-flex align-items-center gap-2">
