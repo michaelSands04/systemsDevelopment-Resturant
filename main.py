@@ -442,13 +442,20 @@ def menu():
     engine = get_engine()
     with engine.begin() as conn:
         rows = conn.execute(text("""
-            SELECT id, name, description, price
+            SELECT id, name, description, price, category, image_url
             FROM menu_items
-            ORDER BY id ASC
+            ORDER BY category ASC, id ASC
         """)).fetchall()
 
     menu_items = [
-        {"id": r.id, "name": r.name, "description": r.description, "price": float(r.price)}
+        {
+            "id": r.id,
+            "name": r.name,
+            "description": r.description,
+            "price": float(r.price),
+            "category": r.category,
+            "image_url": r.image_url,
+        }
         for r in rows
     ]
 
@@ -464,11 +471,11 @@ def menu():
                 m["avg_rating"] = None
                 m["review_count"] = 0
         except Exception:
-            # Don't break menu page if Firestore is temporarily unavailable
             m["avg_rating"] = None
             m["review_count"] = 0
 
     return render_template("menu.html", menu=menu_items, user=current_user())
+
 
 @app.route("/stats")
 def stats():
@@ -652,14 +659,24 @@ def admin_export_reviews():
 def api_menu():
     engine = get_engine()
     with engine.begin() as conn:
-        rows = conn.execute(
-            text("SELECT id, name, description, price FROM menu_items ORDER BY id ASC")
-        ).fetchall()
+        rows = conn.execute(text("""
+            SELECT id, name, description, price, category, image_url
+            FROM menu_items
+            ORDER BY category, name
+        """)).all()
 
     return jsonify([
-        {"id": r.id, "name": r.name, "description": r.description, "price": float(r.price)}
+        {
+            "id": r.id,
+            "name": r.name,
+            "description": r.description,
+            "price": float(r.price),
+            "category": r.category,
+            "image_url": r.image_url,
+        }
         for r in rows
     ])
+
 
 @app.route("/find-us")
 def find_us():
