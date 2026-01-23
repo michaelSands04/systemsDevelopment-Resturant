@@ -32,3 +32,16 @@ def test_api_stats_ok(client):
     assert len(data) >= 1
     assert "review_count" in data[0]
     assert "avg_rating" in data[0]
+
+def test_api_menu_includes_category_and_image(client):
+    r = client.get("/api/menu")
+    assert r.status_code == 200
+
+    data = r.get_json()
+    assert isinstance(data, list)
+    assert len(data) > 0
+
+    first = data[0]
+    assert "category" in first
+    assert "image_url" in first
+

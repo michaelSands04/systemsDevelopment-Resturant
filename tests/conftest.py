@@ -48,7 +48,7 @@ class _FakeCollection:
         return self
 
     def stream(self):
-        items = self.store.get(self.name, [])
+        items = list(self.store.get(self.name, []))
 
         # Apply optional where filter
         if self._where:
@@ -58,6 +58,10 @@ class _FakeCollection:
 
         if self._limit:
             items = items[: self._limit]
+
+        # IMPORTANT: reset query state after stream() so it doesn't leak to next query
+        self._where = None
+        self._limit = None
 
         class _FakeDoc:
             def __init__(self, i, d):
@@ -105,6 +109,10 @@ def _stub_infra(monkeypatch):
     monkeypatch.setenv("SECRET_KEY", "test-secret")
     monkeypatch.setenv("FIRESTORE_DB", "resturantdb2")
 
+    # optional envs used by internal function calls
+    monkeypatch.setenv("REVIEW_STATS_URL", "https://example.com/review-stats")
+    monkeypatch.setenv("INTERNAL_TOKEN", "test-token")
+
     import main
 
     # SQLite in-memory DB shared across connections
@@ -121,16 +129,19 @@ def _stub_infra(monkeypatch):
                 id INTEGER PRIMARY KEY,
                 name TEXT NOT NULL,
                 description TEXT NOT NULL DEFAULT '',
-                price REAL NOT NULL
+                price REAL NOT NULL,
+                category TEXT NOT NULL DEFAULT 'other',
+                image_url TEXT
             )
         """))
+
         conn.execute(text("DELETE FROM menu_items"))
         conn.execute(text("""
-            INSERT INTO menu_items (id, name, description, price) VALUES
-            (1, 'Chicken Burger', 'Test item', 10.49),
-            (2, 'Margherita Pizza', 'Test item', 9.99),
-            (3, 'Fries', 'Test item', 3.49),
-            (4, 'Coke', 'Test item', 1.99)
+            INSERT INTO menu_items (id, name, description, price, category, image_url) VALUES
+            (1, 'Chicken Burger', 'Test item', 10.49, 'burger', 'https://example.com/burger.jpg'),
+            (2, 'Margherita Pizza', 'Test item', 9.99, 'pizza', 'https://example.com/pizza.jpg'),
+            (3, 'Fries', 'Test item', 3.49, 'sides', 'https://example.com/fries.jpg'),
+            (4, 'Coke', 'Test item', 1.99, 'drink', 'https://example.com/coke.jpg')
         """))
 
         conn.execute(text("""
@@ -142,6 +153,7 @@ def _stub_infra(monkeypatch):
                 created_at TEXT
             )
         """))
+
         conn.execute(text("DELETE FROM users"))
         conn.execute(
             text("""
@@ -164,7 +176,15 @@ def _stub_infra(monkeypatch):
     monkeypatch.setattr(main, "init_db", lambda: None)
 
     # Patch Firestore client
-    monkeypatch.setattr(main, "db_fs", FakeFirestoreClient())
+    fake_fs = FakeFirestoreClient()
+
+    # OPTIONAL: seed some stats so the menu rating badges have data
+    fake_fs.store["item_stats"] = [
+        {"item_id": "1", "avg_rating": 4.0, "review_count": 4, "total_rating": 16},
+        {"item_id": "2", "avg_rating": 4.2, "review_count": 5, "total_rating": 21},
+    ]
+
+    monkeypatch.setattr(main, "db_fs", fake_fs)
 
 
 @pytest.fixture()
@@ -173,3 +193,4 @@ def client():
     main.app.config["TESTING"] = True
     with main.app.test_client() as c:
         yield c
+
