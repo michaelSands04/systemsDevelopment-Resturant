@@ -1,0 +1,30 @@
+{% extends "base.html" %}
+{% block content %}
+<h1 class="mb-3">My Orders</h1>
+
+{% if not orders %}
+  <div class="alert alert-info">No orders yet.</div>
+{% else %}
+  {% for o in orders %}
+    <div class="card mb-3">
+      <div class="card-body">
+        <div class="d-flex justify-content-between align-items-start">
+          <div>
+            <h5 class="mb-1">Order #{{ o.id }}</h5>
+            <div class="text-muted small">{{ o.created_at }}</div>
+          </div>
+          <span class="badge bg-secondary">{{ o.status }}</span>
+        </div>
+
+        <ul class="mt-3 mb-2">
+          {% for it in items_by_order.get(o.id, []) %}
+            <li>{{ it.qty }} × {{ it.name }} <span class="text-muted">(£{{ "%.2f"|format(it.unit_price) }})</span></li>
+          {% endfor %}
+        </ul>
+
+        <div class="fw-bold">Total: £{{ "%.2f"|format(o.total_price) }}</div>
+      </div>
+    </div>
+  {% endfor %}
+{% endif %}
+{% endblock %}
