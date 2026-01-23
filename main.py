@@ -661,6 +661,16 @@ def api_menu():
         for r in rows
     ])
 
+@app.route("/find-us")
+def find_us():
+    user = current_user()
+
+    # Optional: audit log when admin views it
+    if user and user.get("role") == "admin":
+        log_event("admin_view_find_us", user.get("username"), request.remote_addr)
+
+    return render_template("find_us.html", user=user)
+
 
 @app.route("/api/reviews", methods=["GET"])
 def api_reviews():
