@@ -7,6 +7,8 @@ env_variables:
   
   INSTANCE_CONNECTION_NAME: "systemsdevelopment-484915:europe-west2:free-trial-first-project"
   ADMIN_USER: "admin"
+
+  EXPORT_REVIEWS_URL: "https://export-reviews-http-p3zngb5vwq-nw.a.run.app"
   
  
   FIRESTORE_DB: "resturantdb2"
