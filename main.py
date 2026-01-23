@@ -608,6 +608,44 @@ def cart_remove(item_id):
 def admin():
     return render_template("admin.html", user=current_user())
 
+from flask import Response
+from datetime import datetime, timezone
+import requests
+import os
+
+@app.route("/admin/export-reviews")
+@admin_required
+def admin_export_reviews():
+    # Calls the Gen2 HTTP Cloud Function and streams CSV back to the browser
+    url = os.environ.get("EXPORT_REVIEWS_URL")
+    token = env_or_secret("INTERNAL_TOKEN", "INTERNAL_TOKEN")
+
+    if not url or not token:
+        flash("Export service not configured (missing EXPORT_REVIEWS_URL / INTERNAL_TOKEN).", "danger")
+        return redirect(url_for("admin"))
+
+    try:
+        resp = requests.get(
+            f"{url}?format=csv&limit=200",
+            headers={"X-Internal-Token": token},
+            timeout=10,
+        )
+    except Exception:
+        flash("Export service unreachable.", "danger")
+        return redirect(url_for("admin"))
+
+    if resp.status_code != 200:
+        flash(f"Export failed (status {resp.status_code}).", "danger")
+        return redirect(url_for("admin"))
+
+    filename = f"reviews_export_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}.csv"
+    return Response(
+        resp.content,
+        mimetype="text/csv",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
 
 # ---- Simple REST API ----
 @app.route("/api/menu")
