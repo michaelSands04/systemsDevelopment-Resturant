@@ -11,6 +11,8 @@
       <form method="post">
         <!-- NEW: Menu item dropdown -->
         <div class="mb-3">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+
           <label class="form-label">Menu item</label>
           <select class="form-select" name="item_id" required>
             <option value="" selected disabled>Select an item...</option>

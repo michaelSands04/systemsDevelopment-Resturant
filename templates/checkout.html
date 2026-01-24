@@ -24,8 +24,12 @@
     </div>
 
     <form method="post" class="mt-3">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+
       <button class="btn btn-primary" type="submit">Place order</button>
       <a class="btn btn-outline-secondary" href="/cart">Back to cart</a>
+      
+
     </form>
   </div>
 </div>

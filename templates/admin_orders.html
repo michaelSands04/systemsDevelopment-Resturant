@@ -15,7 +15,11 @@
         <form method="post" action="/admin/orders/{{ o.id }}/status" class="d-flex gap-2">
           <select class="form-select form-select-sm" name="status">
             {% for s in ["pending","preparing","completed","cancelled"] %}
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+
               <option value="{{ s }}" {% if o.status == s %}selected{% endif %}>{{ s }}</option>
+              
+
             {% endfor %}
           </select>
           <button class="btn btn-sm btn-primary" type="submit">Update</button>

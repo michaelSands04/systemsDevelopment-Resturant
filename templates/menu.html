@@ -69,7 +69,10 @@
                   <span class="fw-bold">£{{ "%.2f"|format(item.price) }}</span>
 
                   <form method="post" action="/cart/add/{{ item.id }}">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+
                     <button class="btn btn-success" type="submit">Add to cart</button>
+                
                   </form>
                 </div>
 

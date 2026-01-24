@@ -8,8 +8,13 @@ from datetime import datetime, timezone
 from google.cloud import firestore
 from google.cloud.firestore_v1.field_path import FieldPath
 from google.cloud import secretmanager
+from flask_wtf.csrf import CSRFProtect
+
 
 from flask import Response
+
+
+
 
 
 
@@ -17,7 +22,8 @@ from flask import Response
 from flask import Flask, render_template, request, redirect, url_for, session, flash, jsonify
 from werkzeug.security import generate_password_hash, check_password_hash
 
-from sqlalchemy import create_engine, text
+from sqlalchemy import create_engine, text, bindparam
+
 from google.cloud import firestore
 
 _secret_cache = {}
@@ -58,6 +64,7 @@ app = Flask(__name__)
 # IMPORTANT: In production you should use Secret Manager later.
 # For now: use env var if set, else fallback.
 app.secret_key = env_or_secret("SECRET_KEY", "SECRET_KEY", "dev-secret-change-me")
+csrf = CSRFProtect(app)
 
 # ---- DB / Engine ----
 _engine = None
@@ -528,14 +535,11 @@ def stats():
     menu_lookup = {}
     if item_ids:
         engine = get_engine()
-        with engine.begin() as conn:
-            rows = conn.execute(
-                text("""
-                    SELECT id, name, price
-                    FROM menu_items
-                    WHERE id IN :ids
-                """).bindparams(ids=tuple(item_ids))
-            ).fetchall()
+        stmt = text("SELECT id, name, price FROM menu_items WHERE id IN :ids") \
+        .bindparams(bindparam("ids", expanding=True))
+
+        rows = conn.execute(stmt, {"ids": item_ids}).fetchall()
+
 
         menu_lookup = {r.id: {"name": r.name, "price": float(r.price)} for r in rows}
 
@@ -596,9 +600,11 @@ def cart():
     if cart_map:
         item_ids = [int(k) for k in cart_map.keys()]
         with engine.begin() as conn:
-            rows = conn.execute(
-                text("SELECT id, name, price FROM menu_items WHERE id IN :ids").bindparams(ids=tuple(item_ids))
-            ).fetchall()
+            stmt = text("SELECT id, name, price FROM menu_items WHERE id IN :ids") \
+            .bindparams(bindparam("ids", expanding=True))
+
+        rows = conn.execute(stmt, {"ids": item_ids}).fetchall()
+
 
         price_lookup = {r.id: Decimal(str(r.price)) for r in rows}
         name_lookup = {r.id: r.name for r in rows}
@@ -645,13 +651,13 @@ def cart_lines_from_session():
     engine = get_engine()
 
     with engine.begin() as conn:
-        rows = conn.execute(
-            text("""
-                SELECT id, name, price
-                FROM menu_items
-                WHERE id IN :ids
-            """).bindparams(ids=tuple(item_ids))
-        ).fetchall()
+        stmt = text("""
+            SELECT id, name, price
+            FROM menu_items
+            WHERE id IN :ids
+        """).bindparams(bindparam("ids", expanding=True))
+
+        rows = conn.execute(stmt, {"ids": item_ids}).fetchall()
 
     lookup = {r.id: {"name": r.name, "price": Decimal(str(r.price))} for r in rows}
 
@@ -683,10 +689,13 @@ def cart_lines_from_session():
 def admin():
     return render_template("admin.html", user=current_user())
 
+from sqlalchemy import bindparam 
+
 @app.route("/admin/orders")
 @admin_required
 def admin_orders():
     engine = get_engine()
+
     with engine.begin() as conn:
         orders = conn.execute(text("""
             SELECT o.id, o.status, o.total_price, o.created_at, u.username
@@ -697,17 +706,19 @@ def admin_orders():
         """)).fetchall()
 
         order_ids = [o.id for o in orders]
+
         items = []
         if order_ids:
-            items = conn.execute(
-                text("""
-                    SELECT oi.order_id, oi.qty, oi.unit_price, mi.name
-                    FROM order_items oi
-                    JOIN menu_items mi ON mi.id = oi.menu_item_id
-                    WHERE oi.order_id IN :oids
-                    ORDER BY oi.order_id DESC, mi.name ASC
-                """).bindparams(oids=tuple(order_ids))
-            ).fetchall()
+            # expanding=True makes "IN (:oids)" work on SQLite + MySQL
+            stmt = text("""
+                SELECT oi.order_id, oi.qty, oi.unit_price, mi.name
+                FROM order_items oi
+                JOIN menu_items mi ON mi.id = oi.menu_item_id
+                WHERE oi.order_id IN :oids
+                ORDER BY oi.order_id DESC, mi.name ASC
+            """).bindparams(bindparam("oids", expanding=True))
+
+            items = conn.execute(stmt, {"oids": order_ids}).fetchall()
 
     items_by_order = {}
     for it in items:
@@ -717,7 +728,12 @@ def admin_orders():
             "unit_price": float(it.unit_price),
         })
 
-    return render_template("admin_orders.html", user=current_user(), orders=orders, items_by_order=items_by_order)
+    return render_template(
+        "admin_orders.html",
+        user=current_user(),
+        orders=orders,
+        items_by_order=items_by_order
+    )
 
 
 @app.route("/admin/orders/<int:order_id>/status", methods=["POST"])
@@ -885,15 +901,16 @@ def my_orders():
         order_ids = [o.id for o in orders]
         items = []
         if order_ids:
-            items = conn.execute(
-                text("""
-                    SELECT oi.order_id, oi.qty, oi.unit_price, mi.name
-                    FROM order_items oi
-                    JOIN menu_items mi ON mi.id = oi.menu_item_id
-                    WHERE oi.order_id IN :oids
-                    ORDER BY oi.order_id DESC, mi.name ASC
-                """).bindparams(oids=tuple(order_ids))
-            ).fetchall()
+            stmt = text("""
+            SELECT oi.order_id, oi.qty, oi.unit_price, mi.name
+            FROM order_items oi
+            JOIN menu_items mi ON mi.id = oi.menu_item_id
+            WHERE oi.order_id IN :oids
+            ORDER BY oi.order_id DESC, mi.name ASC
+        """).bindparams(bindparam("oids", expanding=True))
+
+        items = conn.execute(stmt, {"oids": order_ids}).fetchall()
+       
 
     # group items by order_id
     items_by_order = {}

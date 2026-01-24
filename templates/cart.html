@@ -22,6 +22,8 @@
           <td>
             <form method="post" action="/cart/remove/{{ row.id }}">
               <button class="btn btn-sm btn-outline-danger" type="submit">Remove</button>
+              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+
             </form>
           </td>
         </tr>
@@ -32,7 +34,11 @@
     <h4>Total: £{{ "%.2f"|format(total) }}</h4>
 
     <form method="post" action="/checkout">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+
       <button class="btn btn-primary" type="submit">Checkout (placeholder)</button>
+      
+
     </form>
   {% endif %}
 {% endblock %}
