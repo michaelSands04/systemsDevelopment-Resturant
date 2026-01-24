@@ -4,7 +4,7 @@ from sqlalchemy.pool import StaticPool
 from werkzeug.security import generate_password_hash
 
 
-# -------- Fake Firestore --------
+# ---------------- Fake Firestore ----------------
 class _FakeSnap:
     def __init__(self, data=None):
         self._data = data
@@ -18,7 +18,7 @@ class _FakeDocRef:
     def __init__(self, data=None):
         self._data = data
 
-    def get(self):
+    def get(self, **kwargs):
         return _FakeSnap(self._data)
 
 
@@ -29,17 +29,14 @@ class _FakeCollection:
         self._limit = None
         self._where = None
 
-    # filter (chainable)
     def where(self, field, op, value):
         self._where = (field, op, value)
         return self
 
-    # writes
     def add(self, data):
         self.store.setdefault(self.name, []).append(data)
         return ("fake_id", None)
 
-    # reads (chainable)
     def order_by(self, *args, **kwargs):
         return self
 
@@ -48,9 +45,8 @@ class _FakeCollection:
         return self
 
     def stream(self):
-        items = list(self.store.get(self.name, []))
+        items = self.store.get(self.name, [])
 
-        # Apply optional where filter
         if self._where:
             field, op, value = self._where
             if op == "==":
@@ -58,10 +54,6 @@ class _FakeCollection:
 
         if self._limit:
             items = items[: self._limit]
-
-        # IMPORTANT: reset query state after stream() so it doesn't leak to next query
-        self._where = None
-        self._limit = None
 
         class _FakeDoc:
             def __init__(self, i, d):
@@ -73,15 +65,11 @@ class _FakeCollection:
 
         return [_FakeDoc(i, d) for i, d in enumerate(items)]
 
-    # doc lookup: item_stats/<id>
     def document(self, doc_id):
         if self.name == "item_stats":
             for d in self.store.get("item_stats", []):
-                try:
-                    if str(d.get("item_id")) == str(doc_id) or str(d.get("item_id")) == str(int(doc_id)):
-                        return _FakeDocRef(d)
-                except Exception:
-                    pass
+                if str(d.get("item_id")) == str(doc_id):
+                    return _FakeDocRef(d)
         return _FakeDocRef(None)
 
 
@@ -93,15 +81,10 @@ class FakeFirestoreClient:
         return _FakeCollection(self.store, name)
 
 
-# -------- Pytest fixtures --------
+# ---------------- Pytest fixtures ----------------
 @pytest.fixture(autouse=True)
 def _stub_infra(monkeypatch):
-    """
-    Runs automatically for every test.
-    - Provide env vars (so KeyError doesn't happen)
-    - Replace Cloud SQL engine with in-memory SQLite
-    - Replace Firestore client with a fake in-memory store
-    """
+    # env vars to keep main.py happy
     monkeypatch.setenv("DB_USER", "test")
     monkeypatch.setenv("DB_PASS", "test")
     monkeypatch.setenv("DB_NAME", "test")
@@ -109,21 +92,18 @@ def _stub_infra(monkeypatch):
     monkeypatch.setenv("SECRET_KEY", "test-secret")
     monkeypatch.setenv("FIRESTORE_DB", "resturantdb2")
 
-    # optional envs used by internal function calls
-    monkeypatch.setenv("REVIEW_STATS_URL", "https://example.com/review-stats")
-    monkeypatch.setenv("INTERNAL_TOKEN", "test-token")
-
     import main
 
-    # SQLite in-memory DB shared across connections
+    # shared in-memory sqlite across connections
     engine = create_engine(
         "sqlite+pysqlite:///:memory:",
         connect_args={"check_same_thread": False},
         poolclass=StaticPool,
     )
 
-    # Create minimal tables + seed data used by /menu and /reviews/login
+    # create tables + seed data
     with engine.begin() as conn:
+        # menu_items
         conn.execute(text("""
             CREATE TABLE IF NOT EXISTS menu_items (
                 id INTEGER PRIMARY KEY,
@@ -134,7 +114,6 @@ def _stub_infra(monkeypatch):
                 image_url TEXT
             )
         """))
-
         conn.execute(text("DELETE FROM menu_items"))
         conn.execute(text("""
             INSERT INTO menu_items (id, name, description, price, category, image_url) VALUES
@@ -144,6 +123,7 @@ def _stub_infra(monkeypatch):
             (4, 'Coke', 'Test item', 1.99, 'drink', 'https://example.com/coke.jpg')
         """))
 
+        # users
         conn.execute(text("""
             CREATE TABLE IF NOT EXISTS users (
                 id INTEGER PRIMARY KEY,
@@ -153,7 +133,6 @@ def _stub_infra(monkeypatch):
                 created_at TEXT
             )
         """))
-
         conn.execute(text("DELETE FROM users"))
         conn.execute(
             text("""
@@ -166,31 +145,55 @@ def _stub_infra(monkeypatch):
                 "ph": generate_password_hash("Password123!"),
                 "r": "customer",
                 "t": "2026-01-01T00:00:00Z",
-            }
+            },
+        )
+        conn.execute(
+            text("""
+                INSERT INTO users (id, username, password_hash, role, created_at)
+                VALUES (:id, :u, :ph, :r, :t)
+            """),
+            {
+                "id": 2,
+                "u": "admin",
+                "ph": generate_password_hash("AdminPass123!"),
+                "r": "admin",
+                "t": "2026-01-01T00:00:00Z",
+            },
         )
 
-    # Patch app to use SQLite instead of Cloud SQL during tests
+        # orders tables (MATCHES main.py: total_price + menu_item_id)
+        conn.execute(text("""
+            CREATE TABLE IF NOT EXISTS orders (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER NOT NULL,
+                status TEXT NOT NULL DEFAULT 'pending',
+                total_price REAL NOT NULL DEFAULT 0,
+                created_at TEXT
+            )
+        """))
+        conn.execute(text("""
+            CREATE TABLE IF NOT EXISTS order_items (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                order_id INTEGER NOT NULL,
+                menu_item_id INTEGER NOT NULL,
+                qty INTEGER NOT NULL,
+                unit_price REAL NOT NULL
+            )
+        """))
+
+    # patch app DB + infra
     monkeypatch.setattr(main, "get_engine", lambda: engine)
-
-    # Prevent before_request init_db() from running Cloud SQL logic
     monkeypatch.setattr(main, "init_db", lambda: None)
-
-    # Patch Firestore client
-    fake_fs = FakeFirestoreClient()
-
-    # OPTIONAL: seed some stats so the menu rating badges have data
-    fake_fs.store["item_stats"] = [
-        {"item_id": "1", "avg_rating": 4.0, "review_count": 4, "total_rating": 16},
-        {"item_id": "2", "avg_rating": 4.2, "review_count": 5, "total_rating": 21},
-    ]
-
-    monkeypatch.setattr(main, "db_fs", fake_fs)
+    monkeypatch.setattr(main, "db_fs", FakeFirestoreClient())
 
 
 @pytest.fixture()
 def client():
     import main
     main.app.config["TESTING"] = True
+    # if you enabled CSRF, keep tests working:
+    main.app.config["WTF_CSRF_ENABLED"] = False
+
     with main.app.test_client() as c:
         yield c
 
