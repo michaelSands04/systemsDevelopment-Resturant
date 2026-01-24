@@ -9,6 +9,8 @@ from google.cloud import firestore
 from google.cloud.firestore_v1.field_path import FieldPath
 from google.cloud import secretmanager
 from flask_wtf.csrf import CSRFProtect
+from sqlalchemy import create_engine, text, bindparam
+
 
 
 from flask import Response
@@ -330,10 +332,17 @@ def login():
         flash("Invalid username or password.", "danger")
         return redirect(url_for("login"))
 
+    # --- reset cart if a different user logs in on same browser session ---
+    prev_owner = session.get("cart_owner")
+    if prev_owner is not None and int(prev_owner) != int(row.id):
+        session["cart"] = {}  # wipe previous user's cart
+
+    session["cart_owner"] = int(row.id)
+    # -------------------------------------------------------------------------
+
     session["user"] = {"id": row.id, "username": row.username, "role": row.role}
     flash("Logged in successfully.", "success")
 
-    
     log_event("login", row.username, request.remote_addr)
 
     nxt = request.args.get("next")
@@ -341,13 +350,22 @@ def login():
 
 
 
+
 @app.route("/logout", methods=["POST"])
 def logout():
+    # grab username BEFORE clearing session (so logging works)
+    username = (current_user() or {}).get("username")
+
+    # clear session data
+    session.pop("cart", None)
+    session.pop("cart_owner", None)
     session.pop("user", None)
+
     flash("Logged out.", "info")
-    log_event("logout", (current_user() or {}).get("username"), request.remote_addr)
+    log_event("logout", username, request.remote_addr)
 
     return redirect(url_for("menu"))
+
 
 from datetime import datetime, timezone
 from google.cloud import firestore
@@ -512,6 +530,8 @@ def menu():
     return render_template("menu.html", menu=menu_items, user=current_user())
 
 
+from sqlalchemy import bindparam  # make sure this import exists at the top
+
 @app.route("/stats")
 def stats():
     # 1) Read top rated item stats from Firestore
@@ -526,27 +546,37 @@ def stats():
     item_ids = []
     for d in docs:
         data = d.to_dict() or {}
-        # doc id is item_id as string
         data["item_id"] = d.id
         stats_list.append(data)
-        item_ids.append(int(d.id))
+        try:
+            item_ids.append(int(d.id))
+        except Exception:
+            pass
 
     # 2) Map item_id -> menu item info from Cloud SQL
     menu_lookup = {}
     if item_ids:
         engine = get_engine()
-        stmt = text("SELECT id, name, price FROM menu_items WHERE id IN :ids") \
-        .bindparams(bindparam("ids", expanding=True))
 
-        rows = conn.execute(stmt, {"ids": item_ids}).fetchall()
+        stmt = text("""
+            SELECT id, name, price
+            FROM menu_items
+            WHERE id IN :ids
+        """).bindparams(bindparam("ids", expanding=True))
 
+        with engine.begin() as conn:
+            rows = conn.execute(stmt, {"ids": item_ids}).fetchall()
 
         menu_lookup = {r.id: {"name": r.name, "price": float(r.price)} for r in rows}
 
     # 3) Merge into a display-friendly list
     top_items = []
     for s in stats_list:
-        iid = int(s.get("item_id"))
+        try:
+            iid = int(s.get("item_id"))
+        except Exception:
+            continue
+
         mi = menu_lookup.get(iid, {"name": f"Item {iid}", "price": None})
         top_items.append({
             "item_id": iid,
@@ -556,18 +586,18 @@ def stats():
             "review_count": s.get("review_count", 0),
         })
 
-    # 4) Also show latest reviews (optional but looks great)
+    # 4) Latest reviews
     rdocs = (
         db_fs.collection("reviews")
         .order_by("created_at", direction=firestore.Query.DESCENDING)
         .limit(10)
         .stream()
     )
+
     latest_reviews = []
     for d in rdocs:
         data = d.to_dict() or {}
         data["id"] = d.id
-        # attach menu name for readability
         iid = data.get("item_id")
         try:
             iid_int = int(iid)
@@ -582,6 +612,7 @@ def stats():
         top_items=top_items,
         latest_reviews=latest_reviews
     )
+
 
 
 # ---- Cart (session-based) ----
@@ -599,12 +630,15 @@ def cart():
 
     if cart_map:
         item_ids = [int(k) for k in cart_map.keys()]
+
+        stmt = text("""
+            SELECT id, name, price
+            FROM menu_items
+            WHERE id IN :ids
+        """).bindparams(bindparam("ids", expanding=True))
+
         with engine.begin() as conn:
-            stmt = text("SELECT id, name, price FROM menu_items WHERE id IN :ids") \
-            .bindparams(bindparam("ids", expanding=True))
-
-        rows = conn.execute(stmt, {"ids": item_ids}).fetchall()
-
+            rows = conn.execute(stmt, {"ids": item_ids}).fetchall()
 
         price_lookup = {r.id: Decimal(str(r.price)) for r in rows}
         name_lookup = {r.id: r.name for r in rows}
@@ -899,20 +933,19 @@ def my_orders():
         ).fetchall()
 
         order_ids = [o.id for o in orders]
+
         items = []
         if order_ids:
             stmt = text("""
-            SELECT oi.order_id, oi.qty, oi.unit_price, mi.name
-            FROM order_items oi
-            JOIN menu_items mi ON mi.id = oi.menu_item_id
-            WHERE oi.order_id IN :oids
-            ORDER BY oi.order_id DESC, mi.name ASC
-        """).bindparams(bindparam("oids", expanding=True))
+                SELECT oi.order_id, oi.qty, oi.unit_price, mi.name
+                FROM order_items oi
+                JOIN menu_items mi ON mi.id = oi.menu_item_id
+                WHERE oi.order_id IN :oids
+                ORDER BY oi.order_id DESC, mi.name ASC
+            """).bindparams(bindparam("oids", expanding=True))
 
-        items = conn.execute(stmt, {"oids": order_ids}).fetchall()
-       
+            items = conn.execute(stmt, {"oids": order_ids}).fetchall()
 
-    # group items by order_id
     items_by_order = {}
     for it in items:
         items_by_order.setdefault(it.order_id, []).append({
@@ -922,6 +955,7 @@ def my_orders():
         })
 
     return render_template("orders.html", user=user, orders=orders, items_by_order=items_by_order)
+
 
 
 
@@ -965,6 +999,8 @@ def api_reviews():
     return jsonify(out)
 
 
+from sqlalchemy import text  
+
 @app.route("/api/stats", methods=["GET"])
 def api_stats():
     """
@@ -982,13 +1018,21 @@ def api_stats():
     engine = get_engine()
     with engine.begin() as conn:
         rows = conn.execute(text("""
-            SELECT id, name, description, price
+            SELECT id, name, description, price, category, image_url
             FROM menu_items
             ORDER BY id ASC
-        """)).fetchall()
+            LIMIT :lim
+        """), {"lim": limit}).fetchall()
 
     menu = [
-        {"id": r.id, "name": r.name, "description": r.description, "price": float(r.price)}
+        {
+            "id": r.id,
+            "name": r.name,
+            "description": r.description,
+            "price": float(r.price),
+            "category": getattr(r, "category", None),
+            "image_url": getattr(r, "image_url", None),
+        }
         for r in rows
     ]
 
@@ -1002,7 +1046,7 @@ def api_stats():
 
     # 3) Join
     combined = []
-    for item in menu[:limit]:
+    for item in menu:
         s = stats_map.get(str(item["id"]), {})
         combined.append({
             **item,
@@ -1012,6 +1056,7 @@ def api_stats():
         })
 
     return jsonify(combined)
+
 
 
 if __name__ == "__main__":
