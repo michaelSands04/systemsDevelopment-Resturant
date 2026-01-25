@@ -66,7 +66,16 @@ app = Flask(__name__)
 # IMPORTANT: In production you should use Secret Manager later.
 # For now: use env var if set, else fallback.
 app.secret_key = env_or_secret("SECRET_KEY", "SECRET_KEY", "dev-secret-change-me")
+
+# ---- Cookie / session security ----
+app.config.update(
+    SESSION_COOKIE_SECURE=True,      # only sent over HTTPS
+    SESSION_COOKIE_HTTPONLY=True,    # not accessible via JS
+    SESSION_COOKIE_SAMESITE="Lax",   # helps protect against CSRF
+)
+
 csrf = CSRFProtect(app)
+
 
 # ---- DB / Engine ----
 _engine = None
