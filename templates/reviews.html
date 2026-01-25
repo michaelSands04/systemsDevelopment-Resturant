@@ -9,7 +9,7 @@
 
     {% if user %}
       <form method="post">
-        <!-- NEW: Menu item dropdown -->
+        
         <div class="mb-3">
           <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
 
@@ -60,7 +60,7 @@
         </div>
         <div class="mt-2">{{ r.comment }}</div>
 
-        <!-- Optional: show item_id for now (until we map it to a name later) -->
+        
         {% if r.item_id %}
           <div class="text-muted small mt-2">Item ID: {{ r.item_id }}</div>
         {% endif %}

@@ -169,7 +169,7 @@ def _stub_infra(monkeypatch):
             },
         )
 
-        # orders tables (MATCHES main.py: total_price + menu_item_id)
+        # orders tables 
         conn.execute(text("""
             CREATE TABLE IF NOT EXISTS orders (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,

@@ -64,7 +64,7 @@ db_fs = firestore.Client(database=FIRESTORE_DB)
 app = Flask(__name__)
 
 # IMPORTANT: In production you should use Secret Manager later.
-# For now: use env var if set, else fallback.
+
 app.secret_key = env_or_secret("SECRET_KEY", "SECRET_KEY", "dev-secret-change-me")
 
 # ---- Cookie / session security ----
@@ -202,7 +202,7 @@ def init_db():
                 ('Coke', '330ml can.', 1.99)
             """))
 
-        # Optional: bootstrap an admin user (set these in app.yaml later)
+        # Optional: bootstrap an admin user 
         admin_user = os.environ.get("ADMIN_USER")
         admin_pass = env_or_secret("ADMIN_PASS", "ADMIN_PASS")
 
@@ -347,7 +347,7 @@ def login():
         session["cart"] = {}  # wipe previous user's cart
 
     session["cart_owner"] = int(row.id)
-    # -------------------------------------------------------------------------
+    
 
     session["user"] = {"id": row.id, "username": row.username, "role": row.role}
     flash("Logged in successfully.", "success")
@@ -384,7 +384,7 @@ from google.cloud import firestore
 
 @app.route("/reviews", methods=["GET", "POST"])
 def reviews():
-    user = current_user()  # your existing helper returns session.get("user") or None
+    user = current_user()  
 
     # --- Load menu items from Cloud SQL (for dropdown + name lookup) ---
     engine = get_engine()
@@ -411,7 +411,7 @@ def reviews():
 
         item_id = int(item_id_raw)
 
-        # Optional: ensure item_id is actually in your SQL menu
+        # ensure item_id is actually in your SQL menu
         valid_ids = {m["id"] for m in menu_items}
         if item_id not in valid_ids:
             flash("That menu item does not exist.", "danger")
@@ -539,7 +539,7 @@ def menu():
     return render_template("menu.html", menu=menu_items, user=current_user())
 
 
-from sqlalchemy import bindparam  # make sure this import exists at the top
+from sqlalchemy import bindparam  
 
 @app.route("/stats")
 def stats():
@@ -868,7 +868,7 @@ def api_menu():
 def find_us():
     user = current_user()
 
-    # Optional: audit log when admin views it
+   
     if user and user.get("role") == "admin":
         log_event("admin_view_find_us", user.get("username"), request.remote_addr)
 

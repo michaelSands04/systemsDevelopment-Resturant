@@ -29,11 +29,11 @@ def export_reviews_http(request):
     except ValueError:
         limit = 100
 
-    # --- Build query (NO composite index required) ---
+    # --- Build query 
     col = db.collection("reviews")
 
     if item_id is not None:
-        # IMPORTANT: Use ONLY a filter + limit (no order_by) -> avoids composite index requirement
+        
         try:
             item_id_int = int(item_id)
         except ValueError:
@@ -45,7 +45,7 @@ def export_reviews_http(request):
 
         q = col.where("item_id", "==", item_id_int).limit(limit)
     else:
-        # No filter: order_by is fine without a composite index
+        # No filter
         q = col.order_by("created_at", direction=firestore.Query.DESCENDING).limit(limit)
 
     docs = q.stream()

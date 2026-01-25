@@ -162,6 +162,54 @@
   </div>
 </footer>
 
+<!-- Cookie consent banner -->
+<div id="cookieBanner" class="position-fixed bottom-0 start-0 end-0 p-3" style="z-index: 1080; display:none;">
+  <div class="container app-shell">
+    <div class="glass p-3 d-flex flex-column flex-md-row align-items-start align-items-md-center justify-content-between gap-3">
+      <div class="small text-white-50">
+        <strong class="text-white">Cookies</strong> — We use essential cookies to keep you logged in and remember your cart.
+        By continuing, you agree to our use of these cookies.
+      </div>
+      <div class="d-flex gap-2">
+        <button id="cookieDecline" class="btn btn-sm btn-soft" type="button">Decline</button>
+        <button id="cookieAccept" class="btn btn-sm btn-primary" type="button">Accept</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+(function () {
+  const KEY = "cookie_consent"; // accepted | declined
+  const banner = document.getElementById("cookieBanner");
+  const acceptBtn = document.getElementById("cookieAccept");
+  const declineBtn = document.getElementById("cookieDecline");
+
+  function getConsent() {
+    try { return localStorage.getItem(KEY); } catch (e) { return null; }
+  }
+  function setConsent(val) {
+    try { localStorage.setItem(KEY, val); } catch (e) {}
+  }
+  function hide() { banner.style.display = "none"; }
+  function show() { banner.style.display = "block"; }
+
+  // Show banner only if no choice made yet
+  if (!getConsent()) show();
+
+  acceptBtn.addEventListener("click", function () {
+    setConsent("accepted");
+    hide();
+  });
+
+  declineBtn.addEventListener("click", function () {
+    setConsent("declined");
+    hide();
+  });
+})();
+</script>
+
+
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
 </body>
 </html>

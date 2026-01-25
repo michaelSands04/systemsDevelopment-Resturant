@@ -17,15 +17,15 @@ def test_checkout_creates_order_and_visible_in_my_orders(client):
     r = _add_to_cart(client, 1)
     assert r.status_code == 200
 
-    # place order (your route might be POST /checkout)
+    # place order 
     r = client.post("/checkout", follow_redirects=True)
     assert r.status_code == 200
 
-    # my orders page should show an order (loose checks so it’s robust)
+    # my orders page should show an order 
     r = client.get("/orders")
     assert r.status_code == 200
     body = (r.data or b"").lower()
-    assert b"order" in body  # "My Orders", "Order #", etc.
+    assert b"order" in body  
 
 def test_my_orders_requires_login(client):
     r = client.get("/orders", follow_redirects=False)
