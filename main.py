@@ -63,7 +63,7 @@ db_fs = firestore.Client(database=FIRESTORE_DB)
 
 app = Flask(__name__)
 
-# IMPORTANT: In production you should use Secret Manager later.
+
 
 app.secret_key = env_or_secret("SECRET_KEY", "SECRET_KEY", "dev-secret-change-me")
 
